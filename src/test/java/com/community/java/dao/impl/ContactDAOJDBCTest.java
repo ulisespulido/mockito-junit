@@ -22,6 +22,8 @@ public class ContactDaoJdbcTest {
     private PreparedStatement preparedStatement;
     private Contact contact;
     private ContactDaoJdbc contactDAOJDBC;
+    private SQLException sqlException;
+    private Logger logger;
 
     @Before
     public void setUp() throws Exception {
@@ -29,7 +31,14 @@ public class ContactDaoJdbcTest {
         preparedStatement = mock(PreparedStatement.class);
         contact = new Contact();
         contactDAOJDBC = spy(new ContactDaoJdbc());
+        sqlException = mock(SQLException.class);
+        logger = mock(Logger.class);
+
         doReturn(connection).when(contactDAOJDBC).getConnection();
+        doReturn(logger).when(contactDAOJDBC).getLogger();
+
+        when(connection.prepareStatement(SQL)).thenReturn(preparedStatement);
+
     }
 
     @Test
@@ -38,15 +47,12 @@ public class ContactDaoJdbcTest {
         contact.setName("Juan Perez");
         contact.setEmail("juan@perez.com");
 
-        when(connection.prepareStatement(SQL)).thenReturn(preparedStatement);
 
         Result actual = contactDAOJDBC.save(contact);
 
         verify(preparedStatement).setString(1, "Juan Perez");
         verify(preparedStatement).setString(2, "juan@perez.com");
         verify(preparedStatement).execute();
-        verify(preparedStatement).close();
-        verify(connection).close();
 
         assertEquals(Result.SUCCESS, actual);
 
@@ -54,18 +60,51 @@ public class ContactDaoJdbcTest {
 
     @Test
     public void shouldLogSqlException() throws SQLException {
-        SQLException sqlException = mock(SQLException.class);
-        Logger logger = mock(Logger.class);
 
-        doReturn(logger).when(contactDAOJDBC).getLogger();
-        when(sqlException.getMessage()).thenReturn("There was an error");
         when(connection.prepareStatement(SQL)).thenThrow(sqlException);
 
         Result actual = contactDAOJDBC.save(contact);
 
-        verify(logger).error("Something weird happened", "There was an error");
+        verify(logger).error("Something weird happened", sqlException);
 
         assertEquals(Result.FAILED, actual);
+        verify(connection).close();
+
+    }
+
+    @Test
+    public void shouldClosePreparedStatementInCaseAnErrorHappensInExecution() throws SQLException {
+        when(preparedStatement.execute()).thenThrow(sqlException);
+        Result actual = contactDAOJDBC.save(contact);
+        assertEquals(Result.FAILED, actual);
+        verify(connection).close();
+        verify(preparedStatement).close();
+    }
+
+    @Test
+    public void shouldNotTryToCloseWhenConnectionThrowsException () throws SQLException {
+
+        doThrow(sqlException).when(contactDAOJDBC).getConnection();
+
+        Result actual = contactDAOJDBC.save(contact);
+
+        verify(connection, never()).close();
+        verify(preparedStatement, never()).close();
+        assertEquals(Result.FAILED, actual);
+
+    }
+
+    @Test
+    public void shouldLogErrorIfClosingFails() throws SQLException {
+        doThrow(sqlException).when(connection).close();
+        doThrow(sqlException).when(preparedStatement).close();
+
+        Result actual = contactDAOJDBC.save(contact);
+
+        verify(logger).error("Error closing connection", sqlException);
+        verify(logger).error("Error closing prepared statement", sqlException);
+
+        assertEquals(Result.SUCCESS, actual);
 
     }
 }

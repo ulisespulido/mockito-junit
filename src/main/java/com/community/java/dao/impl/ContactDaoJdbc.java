@@ -17,19 +17,33 @@ public class ContactDaoJdbc implements ContactDao {
 
     @Override
     public Result save(Contact contact) {
+        PreparedStatement preparedStatement = null;
+        Connection connection = null;
         try {
-            Connection connection = getConnection();
+            connection = getConnection();
             String sql = "INSERT INTO contacts VALUES (nextval('contacts_sequence'), ?, ?)";
-            PreparedStatement preparedStatement = connection.prepareStatement(sql);
+            preparedStatement = connection.prepareStatement(sql);
             preparedStatement.setString(1, contact.getName());
             preparedStatement.setString(2, contact.getEmail());
             preparedStatement.execute();
-            preparedStatement.close();
-            connection.close();
-
         } catch (SQLException e) {
-            getLogger().error("Something weird happened", e.getMessage());
+            getLogger().error("Something weird happened", e);
             return Result.FAILED;
+        } finally {
+            if (connection != null) {
+                try {
+                    connection.close();
+                } catch (SQLException e) {
+                    getLogger().error("Error closing connection", e);
+                }
+            }
+            if (preparedStatement != null) {
+                try {
+                   preparedStatement.close();
+                } catch (SQLException e) {
+                    getLogger().error("Error closing prepared statement", e);
+                }
+            }
         }
 
         return Result.SUCCESS;
